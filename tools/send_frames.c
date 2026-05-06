@@ -18,8 +18,19 @@
 #include <sys/ioctl.h>
 #include <arpa/inet.h>
 #include <net/if.h>
-#include <linux/if_packet.h>
-#include <linux/if_ether.h>
+
+#ifdef __linux__
+#  include <linux/if_packet.h>
+#  include <linux/if_ether.h>
+#elif defined(__APPLE__)
+#  include <fcntl.h>
+#  include <net/bpf.h>
+#  ifndef ETH_P_ALL
+#    define ETH_P_ALL 0x0003
+#  endif
+#else
+#  error "Unsupported platform: only Linux and macOS are supported"
+#endif
 
 /* ------------------------------------------------------------------ */
 /*  Frame builder helpers (same as in test_dissect.c)                   */
@@ -142,24 +153,27 @@ static int icmp_hdr(uint8_t *b, uint8_t type, uint8_t code)
 /*  Raw socket sender                                                   */
 /* ------------------------------------------------------------------ */
 
-static int g_sock = -1;
+static int g_fd = -1;
+#ifdef __linux__
 static struct sockaddr_ll g_addr;
+#endif
 
 static int open_raw_socket(const char *iface)
 {
     struct ifreq ifr;
 
-    g_sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-    if (g_sock < 0) {
+#ifdef __linux__
+    g_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+    if (g_fd < 0) {
         perror("socket(AF_PACKET)");
         return -1;
     }
 
     memset(&ifr, 0, sizeof(ifr));
     strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
-    if (ioctl(g_sock, SIOCGIFINDEX, &ifr) < 0) {
+    if (ioctl(g_fd, SIOCGIFINDEX, &ifr) < 0) {
         perror("ioctl(SIOCGIFINDEX)");
-        close(g_sock);
+        close(g_fd);
         return -1;
     }
 
@@ -169,15 +183,49 @@ static int open_raw_socket(const char *iface)
     g_addr.sll_ifindex  = ifr.ifr_ifindex;
 
     printf("Opened interface %s (ifindex=%d)\n\n", iface, ifr.ifr_ifindex);
+#elif defined(__APPLE__)
+    char bpf_path[32];
+    for (int i = 0; i < 256; i++) {
+        snprintf(bpf_path, sizeof(bpf_path), "/dev/bpf%d", i);
+        g_fd = open(bpf_path, O_RDWR);
+        if (g_fd >= 0) break;
+    }
+    if (g_fd < 0) {
+        perror("open(/dev/bpf*)");
+        return -1;
+    }
+
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
+    if (ioctl(g_fd, BIOCSETIF, &ifr) < 0) {
+        perror("ioctl(BIOCSETIF)");
+        close(g_fd);
+        return -1;
+    }
+
+    int enable = 1;
+    if (ioctl(g_fd, BIOCIMMEDIATE, &enable) < 0) {
+        perror("ioctl(BIOCIMMEDIATE)");
+        close(g_fd);
+        return -1;
+    }
+
+    printf("Opened interface %s via BPF\n\n", iface);
+#endif
     return 0;
 }
 
 static void send_frame(const uint8_t *buf, int len, const char *desc)
 {
-    ssize_t sent = sendto(g_sock, buf, (size_t)len, 0,
-                          (struct sockaddr *)&g_addr, sizeof(g_addr));
+    ssize_t sent;
+#ifdef __linux__
+    sent = sendto(g_fd, buf, (size_t)len, 0,
+                  (struct sockaddr *)&g_addr, sizeof(g_addr));
+#else
+    sent = write(g_fd, buf, (size_t)len);
+#endif
     if (sent < 0)
-        fprintf(stderr, "  [ERR] sendto failed for %s: %s\n",
+        fprintf(stderr, "  [ERR] send failed for %s: %s\n",
                 desc, strerror(errno));
     else
         printf("  Sent %-40s  %d bytes\n", desc, (int)sent);
@@ -535,6 +583,6 @@ int main(int argc, char *argv[])
     send_someip_sd_find();
 
     printf("\nDone. 20 frames sent.\n");
-    close(g_sock);
+    close(g_fd);
     return EXIT_SUCCESS;
 }
