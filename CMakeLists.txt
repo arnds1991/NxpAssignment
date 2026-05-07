@@ -13,11 +13,6 @@ add_executable(ethsniff
 
 target_include_directories(ethsniff PRIVATE src)
 
-install(TARGETS ethsniff RUNTIME DESTINATION .)
-
-add_custom_command(TARGET ethsniff POST_BUILD
-    COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${CMAKE_SOURCE_DIR}/out
-)
 
 # ── Threads ────────────────────────────────────────────────────────────────
 find_package(Threads REQUIRED)
