@@ -39,32 +39,15 @@ else()
     find_library(PCAP_LIBRARY   NAMES pcap)
     if(NOT PCAP_INCLUDE_DIR OR NOT PCAP_LIBRARY)
         message(FATAL_ERROR
-            "libpcap not found.\n"
-            "  Linux:  sudo apt-get install libpcap-dev\n"
-            "  macOS:  brew install libpcap")
+            "libpcap not found.  Install with: sudo apt-get install libpcap-dev")
     endif()
     target_include_directories(ethsniff PRIVATE ${PCAP_INCLUDE_DIR})
     target_link_libraries(ethsniff      PRIVATE ${PCAP_LIBRARY})
 endif()
 
-# ── Frame injector (Linux: AF_PACKET; macOS: BPF) ─────────────────────────
-# send_frames.c uses #ifdef __linux__ / #elif __APPLE__ guards internally;
-# no separate source file is needed.  The only platform difference at the
-# CMake level is the extra frameworks required on macOS.
+# ── Frame injector (Linux: AF_PACKET) ────────────────────────────────────
 add_executable(send_frames
     tools/send_frames.c
 )
 target_include_directories(send_frames PRIVATE src)
-
-if(APPLE)
-    # BPF access on macOS does not require an extra library, but the binary
-    # must be code-signed or run as root to open /dev/bpf*.
-    # CoreFoundation is pulled in transitively by libpcap on macOS; list it
-    # explicitly so the linker finds it even without pkg-config.
-    find_library(COREFOUNDATION_LIB CoreFoundation)
-    if(COREFOUNDATION_LIB)
-        target_link_libraries(send_frames PRIVATE ${COREFOUNDATION_LIB})
-    endif()
-elseif(UNIX)
-    # Linux: no additional libraries needed beyond libc.
-endif()
+# Linux only: no additional libraries needed beyond libc.

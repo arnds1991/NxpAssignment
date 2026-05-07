@@ -3,12 +3,16 @@
 Command-line Ethernet frame sniffer written in C. Captures live traffic via
 libpcap and prints structured, human-readable dissection of every frame.
 
+**Linux only.** Requires `AF_PACKET` raw sockets and `sendmmsg(2)`, which are
+Linux-specific APIs.
+
 ---
 
 ## Prerequisites
 
 | Tool | Version | Notes |
 |---|---|---|
+| Linux | kernel ≥ 3.0 | `AF_PACKET` + `sendmmsg` required |
 | C compiler | C11 | `gcc` or `clang` |
 | CMake | ≥ 3.16 | build system |
 | libpcap | any recent | capture library (`libpcap-dev` on Debian/Ubuntu) |
@@ -17,20 +21,10 @@ libpcap and prints structured, human-readable dissection of every frame.
 
 ## Build
 
-**Linux**
 ```bash
 sudo apt-get install -y build-essential cmake libpcap-dev
 cmake -S . -B build && cmake --build build -j
 ```
-
-**macOS**
-```bash
-brew install cmake libpcap
-cmake -S . -B build && cmake --build build -j
-```
-
-On macOS, `send_frames` uses BPF (`/dev/bpf*`) instead of `AF_PACKET`.
-Both tools build and run on Linux and macOS.
 
 ---
 
@@ -53,11 +47,6 @@ sudo ./build/ethsniff -i eth0
 # Terminal 2 – inject 24 test frames (20 protocol + 4 error demos)
 sudo ./build/send_frames eth0
 ```
-
-On macOS, `send_frames` uses BPF instead of `AF_PACKET`; run as root or
-grant `/dev/bpf*` read/write permissions. The `sendmmsg` batch path used by
-the performance test is Linux-only; on macOS the single-frame write path is
-used instead.
 
 ### send_frames modes
 
@@ -138,31 +127,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for a full design walkthrough.
 - IPv6 extension headers not walked (only the fixed 40-byte header is parsed)
 - TCP options not decoded (MSS, SACK, timestamps)
 - Fragmented IP: L4 header is absent in non-first fragments
-- Maximum 2 VLAN tags; MPLS, GRE, and tunnels are not dissected
+- Maximum 2 VLAN tags;
 - Fixed-size ring buffers — sustained high frame rates may cause drops
 - Live capture only; no `.pcap` file input or output
-- Output throughput is bounded by terminal `fwrite` latency
-
-### Error cases that `send_frames` cannot demonstrate
-
-The following dissector error paths exist in `dissect.c` but cannot be
-triggered via raw socket injection because the NIC hardware pads all
-outgoing frames to the Ethernet minimum of 64 bytes, so the truncated
-payload always arrives with enough bytes to pass the dissector's length
-checks:
-
-| Error | Why it cannot be injected |
-|---|---|
-| `DISSECT_ERR_BAD_ARP` | ARP needs < 28 bytes; NIC padding gives receiver ≥ 50 bytes (64 − 14) |
-| `DISSECT_ERR_BAD_IPV6` | IPv6 needs < 40 bytes; NIC padding gives receiver ≥ 50 bytes |
-| `DISSECT_ERR_TRUNC_ICMPv6` | ICMPv6 needs < 8 bytes; after IPv6(40), NIC padding leaves ≥ 10 bytes |
-| L2 truncated (< 14 bytes) | NIC always pads to 64 bytes minimum |
-
-
+- Output throughput is bounded by terminal `fwrite` latency.
 
 ---
 
-## Dependencies
-
-- [libpcap](https://www.tcpdump.org/)
-- POSIX pthreads

@@ -7,9 +7,7 @@
  * Requires CAP_NET_RAW (run as root or: sudo setcap cap_net_raw+ep ./build/send_frames)
  */
 
-#ifdef __linux__
-#  define _GNU_SOURCE   /* sendmmsg(2) – batched sends for maximum throughput */
-#endif
+#define _GNU_SOURCE   /* sendmmsg(2) – batched sends for maximum throughput */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,18 +23,8 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 
-#ifdef __linux__
-#  include <linux/if_packet.h>
-#  include <linux/if_ether.h>
-#elif defined(__APPLE__)
-#  include <fcntl.h>
-#  include <net/bpf.h>
-#  ifndef ETH_P_ALL
-#    define ETH_P_ALL 0x0003
-#  endif
-#else
-#  error "Unsupported platform: only Linux and macOS are supported"
-#endif
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
 
 /* ------------------------------------------------------------------ */
 /*  Frame builder helpers (same as in test_dissect.c)                   */
@@ -160,9 +148,7 @@ static int icmp_hdr(uint8_t *b, uint8_t type, uint8_t code)
 /* ------------------------------------------------------------------ */
 
 static int g_fd = -1;
-#ifdef __linux__
 static struct sockaddr_ll g_addr;
-#endif
 
 /* ------------------------------------------------------------------ */
 /*  Send statistics (accumulated across all frames)                    */
@@ -178,7 +164,6 @@ static int open_raw_socket(const char *iface)
 {
     struct ifreq ifr;
 
-#ifdef __linux__
     g_fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (g_fd < 0) {
         perror("socket(AF_PACKET)");
@@ -208,47 +193,14 @@ static int open_raw_socket(const char *iface)
     g_addr.sll_ifindex  = ifr.ifr_ifindex;
 
     printf("Opened interface %s (ifindex=%d)\n\n", iface, ifr.ifr_ifindex);
-#elif defined(__APPLE__)
-    char bpf_path[32];
-    for (int i = 0; i < 256; i++) {
-        snprintf(bpf_path, sizeof(bpf_path), "/dev/bpf%d", i);
-        g_fd = open(bpf_path, O_RDWR);
-        if (g_fd >= 0) break;
-    }
-    if (g_fd < 0) {
-        perror("open(/dev/bpf*)");
-        return -1;
-    }
-
-    memset(&ifr, 0, sizeof(ifr));
-    strncpy(ifr.ifr_name, iface, IFNAMSIZ - 1);
-    if (ioctl(g_fd, BIOCSETIF, &ifr) < 0) {
-        perror("ioctl(BIOCSETIF)");
-        close(g_fd);
-        return -1;
-    }
-
-    int enable = 1;
-    if (ioctl(g_fd, BIOCIMMEDIATE, &enable) < 0) {
-        perror("ioctl(BIOCIMMEDIATE)");
-        close(g_fd);
-        return -1;
-    }
-
-    printf("Opened interface %s via BPF\n\n", iface);
-#endif
     return 0;
 }
 
 static void send_frame(const uint8_t *buf, int len, const char *desc)
 {
     ssize_t sent;
-#ifdef __linux__
     sent = sendto(g_fd, buf, (size_t)len, 0,
                   (struct sockaddr *)&g_addr, sizeof(g_addr));
-#else
-    sent = write(g_fd, buf, (size_t)len);
-#endif
     if (sent < 0) {
         fprintf(stderr, "  [ERR] send failed for %s: %s\n",
                 desc, strerror(errno));
@@ -780,24 +732,62 @@ static void send_frames_raw(uint64_t count, unsigned int delay_us)
     }
 #endif  /* __linux__ */
 
-    /* ---- Rate-limited path: one sendto()/write() per frame ---- */
-    while (remaining > 0) {
-        ssize_t r;
-#ifdef __linux__
-        r = sendto(g_fd, g_flood_buf, (size_t)g_flood_buf_len, 0,
-                   (struct sockaddr *)&g_addr, sizeof(g_addr));
-#else
-        r = write(g_fd, g_flood_buf, (size_t)g_flood_buf_len);
-#endif
-        if (r < 0)
-            g_stat_errors++;
-        else {
-            g_stat_frames++;
-            g_stat_bytes += (uint64_t)r;
+    /* ---- Rate-limited path ---- */
+    /*
+     * Each individual sendto() costs ~1-3 ms of kernel/hypervisor
+     * overhead inside VMs.  Batch RATE_BATCH frames into one
+     * sendmmsg() call and busy-wait once per batch to keep the rate
+     * accurate without compounding syscall latency.
+     */
+    {
+#define RATE_BATCH  32u
+        struct mmsghdr msgs[RATE_BATCH];
+        struct iovec   iovs[RATE_BATCH];
+        unsigned int k;
+
+        for (k = 0; k < RATE_BATCH; k++) {
+            iovs[k].iov_base                = g_flood_buf;
+            iovs[k].iov_len                 = (size_t)g_flood_buf_len;
+            memset(&msgs[k], 0, sizeof(msgs[k]));
+            msgs[k].msg_hdr.msg_name    = &g_addr;
+            msgs[k].msg_hdr.msg_namelen = sizeof(g_addr);
+            msgs[k].msg_hdr.msg_iov     = &iovs[k];
+            msgs[k].msg_hdr.msg_iovlen  = 1;
         }
-        remaining--;
-        if (delay_us > 0)
-            usleep(delay_us);
+
+        while (remaining > 0) {
+            unsigned int   batch = (remaining < RATE_BATCH)
+                                   ? (unsigned int)remaining : RATE_BATCH;
+            struct timespec _deadline, _now;
+            int             r;
+
+            /* Set deadline = now + batch * delay_us before the send */
+            clock_gettime(CLOCK_MONOTONIC, &_deadline);
+            {
+                long ns = (long)batch * (long)delay_us * 1000L;
+                _deadline.tv_nsec += ns;
+                while (_deadline.tv_nsec >= 1000000000L) {
+                    _deadline.tv_sec++;
+                    _deadline.tv_nsec -= 1000000000L;
+                }
+            }
+
+            r = sendmmsg(g_fd, msgs, batch, 0);
+            if (r < 0) {
+                g_stat_errors++;
+                /* don't advance remaining – retry the same batch */
+            } else {
+                g_stat_frames += (uint64_t)r;
+                g_stat_bytes  += (uint64_t)r * (uint64_t)g_flood_buf_len;
+                remaining     -= (uint64_t)r;
+            }
+
+            /* Busy-wait for the remainder of this batch's time window */
+            do { clock_gettime(CLOCK_MONOTONIC, &_now); }
+            while (_now.tv_sec < _deadline.tv_sec ||
+                   (_now.tv_sec == _deadline.tv_sec &&
+                    _now.tv_nsec < _deadline.tv_nsec));
+        }
     }
 }
 
