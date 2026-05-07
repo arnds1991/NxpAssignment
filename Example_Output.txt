@@ -1,0 +1,210 @@
+============================== Frame #1 ─ 17:23:08.221608 =====================================
+  Captured 54 bytes (wire: 54)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=6(TCP)
+         DSCP=0  ECN=0  total_len=40
+  [TCP]  src_port=12345  dst_port=80     flags=[SYN]
+         seq=16909060    ack=0           window=65535
+===================================================================
+============================== Frame #2 ─ 17:23:08.234189 =====================================
+  Captured 54 bytes (wire: 54)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=6(TCP)
+         DSCP=0  ECN=0  total_len=40
+  [TCP]  src_port=80     dst_port=12345  flags=[SYN|ACK]
+         seq=3735928559  ack=16909061    window=65535
+===================================================================
+============================== Frame #3 ─ 17:23:08.246725 =====================================
+  Captured 54 bytes (wire: 54)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=6(TCP)
+         DSCP=0  ECN=0  total_len=40
+  [TCP]  src_port=12345  dst_port=80     flags=[ACK|FIN]
+         seq=2880154539  ack=3735928560  window=65535
+===================================================================
+============================== Frame #4 ─ 17:23:08.259260 =====================================
+  Captured 42 bytes (wire: 42)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL=128  proto=17(UDP)
+         DSCP=0  ECN=0  total_len=28
+  [UDP]  src_port=5000   dst_port=5001   length=8
+===================================================================
+============================== Frame #5 ─ 17:23:08.271846 =====================================
+  Captured 42 bytes (wire: 42)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=1(ICMP)
+         DSCP=0  ECN=0  total_len=28
+  [ICMP] type=8(Echo Request)  code=0  rest=0x00010001
+===================================================================
+============================== Frame #6 ─ 17:23:08.284403 =====================================
+  Captured 42 bytes (wire: 42)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=1(ICMP)
+         DSCP=0  ECN=0  total_len=28
+  [ICMP] type=0(Echo Reply)  code=0  rest=0x00010001
+===================================================================
+============================== Frame #7 ─ 17:23:08.296899 =====================================
+  Captured 42 bytes (wire: 42)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0806 (ARP)
+  [ARP]  op=1(request)  sender=aa:bb:cc:11:22:33(192.168.1.10)  target=00:00:00:00:00:00(192.168.1.20)
+===================================================================
+============================== Frame #8 ─ 17:23:08.309481 =====================================
+  Captured 42 bytes (wire: 42)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0806 (ARP)
+  [ARP]  op=2(reply)  sender=dd:ee:ff:44:55:66(192.168.1.20)  target=aa:bb:cc:11:22:33(192.168.1.10)
+===================================================================
+============================== Frame #9 ─ 17:23:08.322038 =====================================
+  Captured 58 bytes (wire: 58)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [VLAN] outer VID=100   PCP=3
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=6(TCP)
+         DSCP=0  ECN=0  total_len=40
+  [TCP]  src_port=8080   dst_port=443    flags=[SYN]
+         seq=1           ack=0           window=65535
+===================================================================
+============================== Frame #10 ─ 17:23:08.334644 =====================================
+  Captured 50 bytes (wire: 50)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [VLAN] outer VID=200   PCP=1
+  [VLAN] inner VID=10    PCP=0
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=17(UDP)
+         DSCP=0  ECN=0  total_len=28
+  [UDP]  src_port=1000   dst_port=2000   length=8
+===================================================================
+============================== Frame #11 ─ 17:23:08.345394 =====================================
+  Captured 74 bytes (wire: 74)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x86dd (IPv6)
+  [IPv6] src=2001:db8::1                            
+         dst=2001:db8::2                            
+         hop_limit=64  next_hdr=6(TCP)  flow=0x00000
+  [TCP]  src_port=443    dst_port=54321  flags=[SYN]
+         seq=3735928559  ack=3405691582  window=65535
+===================================================================
+============================== Frame #12 ─ 17:23:08.358001 =====================================
+  Captured 62 bytes (wire: 62)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x86dd (IPv6)
+  [IPv6] src=2001:db8::1                            
+         dst=2001:db8::2                            
+         hop_limit=64  next_hdr=17(UDP)  flow=0x00000
+  [UDP]  src_port=9000   dst_port=9001   length=8
+===================================================================
+============================== Frame #13 ─ 17:23:08.370713 =====================================
+  Captured 62 bytes (wire: 62)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x86dd (IPv6)
+  [IPv6] src=2001:db8::1                            
+         dst=2001:db8::2                            
+         hop_limit=255  next_hdr=58(ICMPv6)  flow=0x00000
+  [ICMPv6] type=133(Router Solicitation)  code=0
+  [RS]   Router Solicitation
+===================================================================
+============================== Frame #14 ─ 17:23:08.382962 =====================================
+  Captured 70 bytes (wire: 70)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x86dd (IPv6)
+  [IPv6] src=2001:db8::1                            
+         dst=2001:db8::2                            
+         hop_limit=255  next_hdr=58(ICMPv6)  flow=0x00000
+  [ICMPv6] type=134(Router Advertisement)  code=0
+  [RA]   hop_limit=64  M=1  O=0  lifetime=1800s
+         reachable=3600ms  retrans=1000ms
+===================================================================
+============================== Frame #15 ─ 17:23:08.395672 =====================================
+  Captured 78 bytes (wire: 78)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x86dd (IPv6)
+  [IPv6] src=2001:db8::1                            
+         dst=2001:db8::2                            
+         hop_limit=255  next_hdr=58(ICMPv6)  flow=0x00000
+  [ICMPv6] type=135(Neighbor Solicitation)  code=0
+  [NS]   target=2001:db8::99
+===================================================================
+============================== Frame #16 ─ 17:23:08.407919 =====================================
+  Captured 78 bytes (wire: 78)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x86dd (IPv6)
+  [IPv6] src=2001:db8::1                            
+         dst=2001:db8::2                            
+         hop_limit=255  next_hdr=58(ICMPv6)  flow=0x00000
+  [ICMPv6] type=136(Neighbor Advertisement)  code=0
+  [NA]   target=2001:db8::99
+         R=0  S=1  O=1
+===================================================================
+============================== Frame #17 ─ 17:23:08.418201 =====================================
+  Captured 50 bytes (wire: 50)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=17(UDP)
+         DSCP=0  ECN=0  total_len=36
+  [UDP]  src_port=13400  dst_port=13400 (DoIP)  length=16
+  [DoIP] ver=0xfd  type=0x0001 (Vehicle ID Request)  payload_len=0
+  [PAYLOAD] 8 bytes
+  0000  fd 02 00 01 00 00 00 00                           ........
+===================================================================
+============================== Frame #18 ─ 17:23:08.428714 =====================================
+  Captured 62 bytes (wire: 62)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=6(TCP)
+         DSCP=0  ECN=0  total_len=48
+  [TCP]  src_port=13400  dst_port=13400 (DoIP)  flags=[SYN]
+         seq=2882343476  ack=0           window=65535
+  [DoIP] ver=0x02  type=0x0005 (Routing Activation Request)  payload_len=0
+  [PAYLOAD] 8 bytes
+  0000  02 fd 00 05 00 00 00 00                           ........
+===================================================================
+============================== Frame #19 ─ 17:23:08.441387 =====================================
+  Captured 82 bytes (wire: 82)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=17(UDP)
+         DSCP=0  ECN=0  total_len=68
+  [UDP]  src_port=30490  dst_port=30490  length=48
+  [SOME/IP-SD] Service Discovery  reboot=1  unicast=1  entries=1
+    [0] Offer Service               svc=0x1234  inst=0x0001  v1.0  TTL=5
+  [PAYLOAD] 40 bytes
+  0000  ff ff 81 00 00 00 00 20  00 00 00 00 01 01 02 00  ....... ........
+  0010  c0 00 00 00 00 00 00 10  01 00 00 00 12 34 00 01  .............4..
+  0020  01 00 00 05 00 00 00 00                           ........
+===================================================================
+============================== Frame #20 ─ 17:23:08.453552 =====================================
+  Captured 82 bytes (wire: 82)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=17(UDP)
+         DSCP=0  ECN=0  total_len=68
+  [UDP]  src_port=30490  dst_port=30490  length=48
+  [SOME/IP-SD] Service Discovery  reboot=1  unicast=0  entries=1
+    [0] Find Service                svc=0x5678  inst=0xffff  v255.4294967295  TTL=16777215
+  [PAYLOAD] 40 bytes
+  0000  ff ff 81 00 00 00 00 20  00 00 00 00 01 01 02 00  ....... ........
+  0010  80 00 00 00 00 00 00 10  00 00 00 00 56 78 ff ff  ............Vx..
+  0020  ff ff ff ff ff ff ff ff                           ........
+===================================================================
+============================== Frame #21 ─ 17:23:08.466206 =====================================
+  Captured 34 bytes (wire: 34)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [PAYLOAD] 20 bytes
+  0000  41 00 00 00 00 00 00 00  00 00 00 00 00 00 00 00  A...............
+  0010  00 00 00 00                                       ....
+  [ERROR] malformed IPv4 header
+===================================================================
+============================== Frame #22 ─ 17:23:08.478760 =====================================
+  Captured 78 bytes (wire: 78)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=0.0.0.0          dst=0.0.0.0          TTL= 64  proto=6(TCP)
+         DSCP=0  ECN=0  total_len=0
+  [PAYLOAD] 4 bytes
+  0000  27 0f 00 50                                       '..P
+  [ERROR] truncated TCP segment
+===================================================================
+============================== Frame #23 ─ 17:23:08.489456 =====================================
+  Captured 78 bytes (wire: 78)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=0.0.0.0          dst=0.0.0.0          TTL= 64  proto=17(UDP)
+         DSCP=0  ECN=0  total_len=0
+  [PAYLOAD] 4 bytes
+  0000  27 0f 27 0e                                       '.'.
+  [ERROR] truncated UDP datagram
+===================================================================
+============================== Frame #24 ─ 17:23:08.502064 =====================================
+  Captured 78 bytes (wire: 78)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [IPv4] src=0.0.0.0          dst=0.0.0.0          TTL= 64  proto=1(ICMP)
+         DSCP=0  ECN=0  total_len=0
+  [PAYLOAD] 4 bytes
+  0000  08 00 00 00                                       ....
+  [ERROR] truncated ICMP message
+===================================================================
