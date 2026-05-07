@@ -13,6 +13,15 @@
 #include <netinet/in.h>
 
 /* ------------------------------------------------------------------ */
+/*  Configuration                                                       */
+/* ------------------------------------------------------------------ */
+
+/* Maximum payload bytes shown in the hex dump per frame.
+ * Edit this value to display more or fewer bytes.
+ * Set to 0 to suppress the payload dump entirely.                     */
+#define PAYLOAD_DUMP_BYTES  128
+
+/* ------------------------------------------------------------------ */
 /*  Portable network-to-host helpers                                    */
 /* ------------------------------------------------------------------ */
 
@@ -721,7 +730,7 @@ static const char *icmpv6_type_str(uint8_t t)
 
 /* Render a parsed_frame_t to a human-readable multi-line text block in
  * buf[sz], covering Ethernet, VLAN, L3, L4, DoIP, SOME/IP-SD, and a
- * hex dump of up to 128 payload bytes. */
+ * hex dump of up to PAYLOAD_DUMP_BYTES payload bytes. */
 void format_frame(const parsed_frame_t *f, char *buf, size_t sz)
 {
     char      mac_src[18], mac_dst[18];
@@ -942,12 +951,15 @@ void format_frame(const parsed_frame_t *f, char *buf, size_t sz)
         }
     }
 
-    /* Payload hex dump (capped at 128 bytes) */
-    if (f->payload_len > 0) {
-        uint32_t dump_len = f->payload_len > 128 ? 128 : f->payload_len;
+    /* Payload hex dump (capped at PAYLOAD_DUMP_BYTES) */
+    if (f->payload_len > 0 && PAYLOAD_DUMP_BYTES > 0) {
+        uint32_t dump_len = f->payload_len > PAYLOAD_DUMP_BYTES ? PAYLOAD_DUMP_BYTES : f->payload_len;
         uint32_t i;
-        APPEND("  [PAYLOAD] %u bytes%s\n", f->payload_len,
-               f->payload_len > 128 ? " (showing first 128)" : "");
+        if (f->payload_len > PAYLOAD_DUMP_BYTES)
+            APPEND("  [PAYLOAD] %u bytes (showing first %u)\n",
+                   f->payload_len, (uint32_t)PAYLOAD_DUMP_BYTES);
+        else
+            APPEND("  [PAYLOAD] %u bytes\n", f->payload_len);
         for (i = 0; i < dump_len; i += 16) {
             uint32_t j, row = dump_len - i > 16 ? 16 : dump_len - i;
             APPEND("  %04x  ", i);

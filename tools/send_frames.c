@@ -7,12 +7,18 @@
  * Requires CAP_NET_RAW (run as root or: sudo setcap cap_net_raw+ep ./build/send_frames)
  */
 
+#ifdef __linux__
+#  define _GNU_SOURCE   /* sendmmsg(2) – batched sends for maximum throughput */
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <unistd.h>
 #include <errno.h>
+#include <time.h>
+#include <inttypes.h>
 
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -158,6 +164,16 @@ static int g_fd = -1;
 static struct sockaddr_ll g_addr;
 #endif
 
+/* ------------------------------------------------------------------ */
+/*  Send statistics (accumulated across all frames)                    */
+/* ------------------------------------------------------------------ */
+
+static uint64_t g_stat_frames = 0; /* frames successfully sent */
+static uint64_t g_stat_bytes  = 0; /* bytes  successfully sent */
+static uint64_t g_stat_errors = 0; /* send() call failures     */
+
+static int g_perf_test = 0;        /* 1 activates 3-phase performance test */
+
 static int open_raw_socket(const char *iface)
 {
     struct ifreq ifr;
@@ -167,6 +183,15 @@ static int open_raw_socket(const char *iface)
     if (g_fd < 0) {
         perror("socket(AF_PACKET)");
         return -1;
+    }
+
+    /* Enlarge the kernel send buffer to 4 MB to avoid ENOBUFS drops
+     * under sustained high-rate sends.  The kernel doubles the value
+     * internally, so effective buffer = 8 MB.                        */
+    {
+        int sndbuf = 4 * 1024 * 1024;
+        if (setsockopt(g_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)) < 0)
+            perror("setsockopt(SO_SNDBUF) [non-fatal]");
     }
 
     memset(&ifr, 0, sizeof(ifr));
@@ -224,13 +249,17 @@ static void send_frame(const uint8_t *buf, int len, const char *desc)
 #else
     sent = write(g_fd, buf, (size_t)len);
 #endif
-    if (sent < 0)
+    if (sent < 0) {
         fprintf(stderr, "  [ERR] send failed for %s: %s\n",
                 desc, strerror(errno));
-    else
+        g_stat_errors++;
+    } else {
         printf("  Sent %-40s  %d bytes\n", desc, (int)sent);
+        g_stat_frames++;
+        g_stat_bytes += (uint64_t)sent;
+    }
 
-    usleep(10000); /* 10 ms gap so ethsniff can print them in order */
+    usleep(10000); /* 10 ms inter-frame gap in typed-frame mode */
 }
 
 /* ------------------------------------------------------------------ */
@@ -535,23 +564,88 @@ static void send_someip_sd_find(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  main                                                                */
+/*  Error demonstration frames                                          */
+/*                                                                      */
+/*  These frames contain deliberate malformations to exercise the       */
+/*  [ERROR] paths in dissect.c.  Each frame produces an error tag in   */
+/*  ethsniff output instead of (or alongside) parsed L4 fields.        */
+/*                                                                      */
+/*  Technique for truncation errors: set IPv4 IHL=15 (60-byte header,  */
+/*  40 bytes of padding) so only 4 bytes remain for the L4 header.     */
+/*  The frame is 14+60+4 = 78 bytes – above the 64-byte NIC minimum –  */
+/*  so no hardware padding occurs and the truncation reaches pcap.      */
 /* ------------------------------------------------------------------ */
 
-int main(int argc, char *argv[])
+/* Triggers DISSECT_ERR_BAD_IPV4: IHL=1 → ihl_bytes=4 < 20 minimum.   */
+static void send_error_bad_ipv4_ihl(void)
 {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <interface>\n", argv[0]);
-        fprintf(stderr, "Example: sudo %s eth0\n", argv[0]);
-        return EXIT_FAILURE;
-    }
+    uint8_t f[128] = {0}; int off = 0;
+    off += eth_hdr(f + off, 0x0800);
+    f[off + 0] = 0x41;   /* version=4, IHL=1 → ihl_bytes=4 < 20       */
+    off += 20;
+    send_frame(f, off, "ERROR: IPv4 bad IHL=1 (DISSECT_ERR_BAD_IPV4)");
+}
 
-    if (open_raw_socket(argv[1]) != 0)
-        return EXIT_FAILURE;
+/* Triggers DISSECT_ERR_TRUNC_TCP: only 4 bytes after the IP header    */
+/* where TCP requires ≥ 20.                                             */
+static void send_error_trunc_tcp(void)
+{
+    uint8_t f[128] = {0}; int off = 0;
+    off += eth_hdr(f + off, 0x0800);
+    f[off + 0] = 0x4F;              /* version=4, IHL=15 (60-byte hdr) */
+    f[off + 8] = 64;                /* TTL                              */
+    f[off + 9] = 6;                 /* proto=TCP                        */
+    off += 60;                      /* skip oversized IP header         */
+    put16(f + off, 0, 9999);        /* src port (partial TCP stub)      */
+    put16(f + off, 2, 80);          /* dst port                         */
+    off += 4;                       /* only 4 bytes – TCP needs ≥ 20    */
+    send_frame(f, off, "ERROR: truncated TCP header (DISSECT_ERR_TRUNC_TCP)");
+}
 
-    printf("Sending frames on %s — run ethsniff in another terminal to capture.\n\n",
-           argv[1]);
+/* Triggers DISSECT_ERR_TRUNC_UDP: only 4 bytes where UDP requires 8.  */
+static void send_error_trunc_udp(void)
+{
+    uint8_t f[128] = {0}; int off = 0;
+    off += eth_hdr(f + off, 0x0800);
+    f[off + 0] = 0x4F;              /* version=4, IHL=15               */
+    f[off + 8] = 64;
+    f[off + 9] = 17;                /* proto=UDP                        */
+    off += 60;
+    put16(f + off, 0, 9999);        /* src port (partial UDP stub)      */
+    put16(f + off, 2, 9998);        /* dst port                         */
+    off += 4;                       /* only 4 bytes – UDP needs 8       */
+    send_frame(f, off, "ERROR: truncated UDP header (DISSECT_ERR_TRUNC_UDP)");
+}
 
+/* Triggers DISSECT_ERR_TRUNC_ICMP: only 4 bytes where ICMP requires 8.*/
+static void send_error_trunc_icmp(void)
+{
+    uint8_t f[128] = {0}; int off = 0;
+    off += eth_hdr(f + off, 0x0800);
+    f[off + 0] = 0x4F;              /* version=4, IHL=15               */
+    f[off + 8] = 64;
+    f[off + 9] = 1;                 /* proto=ICMP                       */
+    off += 60;
+    f[off + 0] = 8;                 /* type=Echo Request                */
+    f[off + 1] = 0;                 /* code=0                           */
+    off += 4;                       /* only 4 bytes – ICMP needs 8      */
+    send_frame(f, off, "ERROR: truncated ICMP header (DISSECT_ERR_TRUNC_ICMP)");
+}
+
+static void send_error_frames(void)
+{
+    send_error_bad_ipv4_ihl();
+    send_error_trunc_tcp();
+    send_error_trunc_udp();
+    send_error_trunc_icmp();
+}
+
+/* ------------------------------------------------------------------ */
+/*  One full cycle: send every supported frame type + error demos      */
+/* ------------------------------------------------------------------ */
+
+static void send_all_frames(void)
+{
     /* IPv4 */
     send_ipv4_tcp_syn();
     send_ipv4_tcp_synack();
@@ -564,7 +658,7 @@ int main(int argc, char *argv[])
     send_arp_request();
     send_arp_reply();
 
-    /* VLAN */
+    /* VLAN / QinQ */
     send_vlan_ipv4_tcp();
     send_qinq_ipv4_udp();
 
@@ -582,7 +676,282 @@ int main(int argc, char *argv[])
     send_someip_sd_offer();
     send_someip_sd_find();
 
-    printf("\nDone. 20 frames sent.\n");
+    /* Malformed frames – exercise [ERROR] paths in dissect.c */
+    send_error_frames();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Flood mode – frame builder and high-throughput send loop           */
+/* ------------------------------------------------------------------ */
+
+/* Maximum flood frame size (jumbo Ethernet).                          */
+#define FLOOD_MAX_SIZE  9000
+/* Minimum: Eth(14) + IPv4(20) + UDP(8) = 42 bytes.                   */
+#define FLOOD_MIN_SIZE  42
+
+/* Number of frames batched into a single sendmmsg() syscall on Linux.
+ * 64 is a good balance: large enough to amortise syscall overhead,   */
+/* small enough to stay in cache.                                      */
+#define MMSG_BATCH  512
+
+/* Pre-built flood frame buffer (filled once by build_flood_frame).    */
+static uint8_t g_flood_buf[FLOOD_MAX_SIZE];
+static int     g_flood_buf_len = 0;
+
+#define PERF_FRAME_SIZE  1514u   /* fixed frame size for perf/flood tests */
+
+/*
+ * build_flood_frame – construct a valid Ethernet/IPv4/UDP frame of
+ * PERF_FRAME_SIZE bytes.  The UDP payload is padded with 0xAB so
+ * the frame is easy to identify in a packet capture.
+ */
+static void build_flood_frame(void)
+{
+    unsigned int frame_size = PERF_FRAME_SIZE;
+    uint16_t payload_len, udp_len, ip_total;
+    int off = 0;
+
+    memset(g_flood_buf, 0, frame_size);
+
+    /* Ethernet header (14 bytes) */
+    off += eth_hdr(g_flood_buf + off, 0x0800);
+
+    /* Derive sizes so IP total length and UDP length are consistent */
+    payload_len = (uint16_t)(frame_size - 14u - 20u - 8u);
+    udp_len     = (uint16_t)(8u + payload_len);
+    ip_total    = (uint16_t)(20u + udp_len);
+
+    /* IPv4 header (20 bytes) */
+    off += ipv4_hdr(g_flood_buf + off, 17 /*UDP*/, 64, ip_total);
+
+    /* UDP header (8 bytes) */
+    off += udp_hdr(g_flood_buf + off, 9999, 9999, udp_len);
+
+    /* Fill the payload with a recognisable pattern */
+    memset(g_flood_buf + off, 0xAB, payload_len);
+
+    g_flood_buf_len = (int)frame_size;
+
+    printf("Perf frame: %d bytes  (Eth/IPv4/UDP + %u-byte 0xAB payload)\n\n",
+           g_flood_buf_len, payload_len);
+}
+
+/*
+ * send_frames_raw – send 'count' copies of the pre-built g_flood_buf.
+ *
+ * delay_us == 0: Linux uses sendmmsg() batching for maximum throughput.
+ * delay_us  > 0: one sendto()/write() per frame followed by usleep().
+ */
+static void send_frames_raw(uint64_t count, unsigned int delay_us)
+{
+    uint64_t remaining = count;
+
+#ifdef __linux__
+    if (delay_us == 0) {
+        /* ---- Maximum-throughput path: sendmmsg batch ---- */
+        struct mmsghdr msgs[MMSG_BATCH];
+        struct iovec   iovs[MMSG_BATCH];
+        int k;
+
+        /* All entries point at the same pre-built frame buffer */
+        for (k = 0; k < MMSG_BATCH; k++) {
+            iovs[k].iov_base                = g_flood_buf;
+            iovs[k].iov_len                 = (size_t)g_flood_buf_len;
+            memset(&msgs[k], 0, sizeof(msgs[k]));
+            msgs[k].msg_hdr.msg_name    = &g_addr;
+            msgs[k].msg_hdr.msg_namelen = sizeof(g_addr);
+            msgs[k].msg_hdr.msg_iov     = &iovs[k];
+            msgs[k].msg_hdr.msg_iovlen  = 1;
+        }
+
+        while (remaining > 0) {
+            unsigned int batch = (remaining < MMSG_BATCH)
+                                 ? (unsigned int)remaining : MMSG_BATCH;
+            int r = sendmmsg(g_fd, msgs, batch, 0);
+            if (r < 0) {
+                g_stat_errors++;
+                continue; /* retry on signal interruption */
+            }
+            g_stat_frames += (uint64_t)r;
+            g_stat_bytes  += (uint64_t)r * (uint64_t)g_flood_buf_len;
+            remaining     -= (uint64_t)r;
+        }
+        return;
+    }
+#endif  /* __linux__ */
+
+    /* ---- Rate-limited path: one sendto()/write() per frame ---- */
+    while (remaining > 0) {
+        ssize_t r;
+#ifdef __linux__
+        r = sendto(g_fd, g_flood_buf, (size_t)g_flood_buf_len, 0,
+                   (struct sockaddr *)&g_addr, sizeof(g_addr));
+#else
+        r = write(g_fd, g_flood_buf, (size_t)g_flood_buf_len);
+#endif
+        if (r < 0)
+            g_stat_errors++;
+        else {
+            g_stat_frames++;
+            g_stat_bytes += (uint64_t)r;
+        }
+        remaining--;
+        if (delay_us > 0)
+            usleep(delay_us);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Print timing and throughput summary after the burst                */
+/* ------------------------------------------------------------------ */
+
+static void print_send_stats(const struct timespec *t0, const struct timespec *t1)
+{
+    double elapsed = (double)(t1->tv_sec  - t0->tv_sec) +
+                     (double)(t1->tv_nsec - t0->tv_nsec) * 1e-9;
+    double fps     = (elapsed > 0.0) ? (double)g_stat_frames / elapsed : 0.0;
+    double kbps    = (elapsed > 0.0) ? (double)g_stat_bytes  / elapsed / 1024.0 : 0.0;
+
+    printf("\n========== Send Summary ==========\n");
+    printf("  Frames sent:  %" PRIu64 "\n", g_stat_frames);
+    printf("  Bytes sent:   %" PRIu64 "\n", g_stat_bytes);
+    printf("  Errors:       %" PRIu64 "\n", g_stat_errors);
+    printf("  Elapsed:      %.3f s\n",       elapsed);
+    printf("  Frame rate:   %.1f frames/s\n", fps);
+    printf("  Throughput:   %.2f KB/s\n",    kbps);
+    printf("==================================\n");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Performance test – exercise the three operating zones              */
+/*                                                                      */
+/*  Sends three bursts of Ethernet/IPv4/UDP frames at increasing rates */
+/*  to demonstrate the behaviour described in README.md#performance.   */
+/*  Run ethsniff on the same interface; watch the 1-second stats line  */
+/*  for ring occupancy and drop counts after each phase.               */
+/* ------------------------------------------------------------------ */
+
+/* Phase 1: safe zone  – frame rate well below the ~5 000 fps threshold */
+#define PERF_PHASE1_FPS     3000u
+#define PERF_PHASE1_FRAMES 15000u   /* ≈ 5 s at 3 000 fps */
+
+/* Phase 2: stress zone – inside the 5 000–15 000 fps band */
+#define PERF_PHASE2_FPS    10000u
+#define PERF_PHASE2_FRAMES 50000u   /* ≈ 5 s at 10 000 fps */
+
+/* Phase 3: flood zone  – max rate; run long enough to see steady drops */
+#define PERF_PHASE3_FRAMES 300000u
+
+static void run_perf_test(void)
+{
+    struct timespec ph_t0, ph_t1;
+
+    /* Use default 1514-byte frames unless the user passed -s */
+    build_flood_frame();
+
+    printf("=== Performance test: 3 phases, %u-byte frames ===\n\n",
+           PERF_FRAME_SIZE);
+    printf("Ensure ethsniff is already running on this interface.\n");
+    printf("Watch the 1-second stats line for ring occupancy and drop counts.\n\n");
+
+    /* ---- Phase 1: safe zone ---- */
+    printf("Phase 1: safe zone  (%u fps, %u µs gap)  –  %u frames\n",
+           PERF_PHASE1_FPS, 1000000u / PERF_PHASE1_FPS, PERF_PHASE1_FRAMES);
+    printf("  Expected: 0 drops; IO thread keeps up with fwrite.\n\n");
+    clock_gettime(CLOCK_MONOTONIC, &ph_t0);
+    send_frames_raw(PERF_PHASE1_FRAMES, 1000000u / PERF_PHASE1_FPS);
+    clock_gettime(CLOCK_MONOTONIC, &ph_t1);
+    print_send_stats(&ph_t0, &ph_t1);
+
+    sleep(3);   /* pause so ethsniff stats clearly separate the phases */
+
+    /* ---- Phase 2: stress zone ---- */
+    printf("\nPhase 2: stress zone  (%u fps, %u µs gap)  –  %u frames\n",
+           PERF_PHASE2_FPS, 1000000u / PERF_PHASE2_FPS, PERF_PHASE2_FRAMES);
+    printf("  Expected: str_ring occupancy rises; output may be delayed.\n\n");
+    clock_gettime(CLOCK_MONOTONIC, &ph_t0);
+    send_frames_raw(PERF_PHASE2_FRAMES, 1000000u / PERF_PHASE2_FPS);
+    clock_gettime(CLOCK_MONOTONIC, &ph_t1);
+    print_send_stats(&ph_t0, &ph_t1);
+
+    sleep(3);
+
+    /* ---- Phase 3: flood zone ---- */
+    printf("\nPhase 3: flood zone  (max rate, sendmmsg)  –  %u frames\n",
+           PERF_PHASE3_FRAMES);
+    printf("  Expected: str_ring saturates; ethsniff drop counter > 0\n");
+    printf("  (only visible when ethsniff stdout is a terminal).\n\n");
+    clock_gettime(CLOCK_MONOTONIC, &ph_t0);
+    send_frames_raw(PERF_PHASE3_FRAMES, 0u);
+    clock_gettime(CLOCK_MONOTONIC, &ph_t1);
+    print_send_stats(&ph_t0, &ph_t1);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Usage                                                               */
+/* ------------------------------------------------------------------ */
+
+static void print_usage(const char *prog)
+{
+    fprintf(stderr,
+        "Usage: sudo %s <interface> [--perf-test] [-h]\n\n"
+        "Modes:\n"
+        "  (default)      Typed-frame mode: sends one frame of every supported\n"
+        "                 protocol type (24 frames total, 10 ms gap).\n"
+        "  --perf-test    Performance test: three successive bursts at 3 000 fps,\n"
+        "                 10 000 fps, and max rate. Run ethsniff on the same\n"
+        "                 interface first.\n\n"
+        "Options:\n"
+        "  -h, --help     Show this help\n\n"
+        "Examples:\n"
+        "  sudo %s eth0\n"
+        "  sudo %s eth0 --perf-test\n",
+        prog, prog, prog);
+}
+
+/* ------------------------------------------------------------------ */
+/*  main                                                                */
+/* ------------------------------------------------------------------ */
+
+int main(int argc, char *argv[])
+{
+    const char     *iface = NULL;
+    struct timespec t0, t1;
+    int             i;
+
+    if (argc < 2) { print_usage(argv[0]); return EXIT_FAILURE; }
+
+    iface = argv[1];
+
+    for (i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--perf-test") == 0) {
+            g_perf_test = 1;
+        } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            print_usage(argv[0]); return EXIT_SUCCESS;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n\n", argv[i]);
+            print_usage(argv[0]); return EXIT_FAILURE;
+        }
+    }
+
+    if (open_raw_socket(iface) != 0)
+        return EXIT_FAILURE;
+
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    if (g_perf_test) {
+        /* ---- Performance test: 3 phases at increasing frame rates ---- */
+        run_perf_test();
+    } else {
+        /* ---- Typed-frame mode: one frame of every supported protocol ---- */
+        printf("Typed-frame mode: 24 frames on %s  (10 ms inter-frame gap)\n", iface);
+        printf("Run ethsniff in another terminal to capture.\n\n");
+        send_all_frames();
+    }
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+    print_send_stats(&t0, &t1);
+
     close(g_fd);
     return EXIT_SUCCESS;
 }
