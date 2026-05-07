@@ -118,7 +118,7 @@ ethsniff uses a three-thread pipeline to decouple capture from output:
 
 Both rings are fixed-size lock-based circular buffers. If a ring is full the pushing thread drops the frame and increments a counter. A session summary (frame count, peak ring occupancy, drop counts, kernel stats) is printed to stderr when ethsniff exits.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a full design walkthrough.
+See [Detailed_Design.md](Detailed_Design.md) for a full design walkthrough.
 
 ---
 
