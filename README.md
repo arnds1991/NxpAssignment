@@ -83,16 +83,28 @@ and will appear in ethsniff output with an `[ERROR]` tag:
 
 ## Example output
 
+The full output of a `send_frames` functional test run is in
+[`Example_Output.txt`](Example_Output.txt). A subset is shown below:
+
 ```
-============================== Frame #1 ─ 21:00:52.905015 =====================================
+============================== Frame #1 ─ 17:23:08.221608 =====================================
   Captured 54 bytes (wire: 54)
-  [ETH]  src=aa:bb:cc:11:22:33  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0800 (IPv4)
   [IPv4] src=10.0.0.1         dst=10.0.0.2         TTL= 64  proto=6(TCP)
          DSCP=0  ECN=0  total_len=40
   [TCP]  src_port=12345  dst_port=80     flags=[SYN]
          seq=16909060    ack=0           window=65535
 ===================================================================
+============================== Frame #7 ─ 17:23:08.296899 =====================================
+  Captured 42 bytes (wire: 42)
+  [ETH]  src=42:21:66:c5:e9:46  dst=ff:ff:ff:ff:ff:ff  EtherType=0x0806 (ARP)
+  [ARP]  op=1(request)  sender=aa:bb:cc:11:22:33(192.168.1.10)  target=00:00:00:00:00:00(192.168.1.20)
+===================================================================
 ```
+
+[`Flood_Output.txt`](Flood_Output.txt) contains the results of a basic stress
+test (`send_frames --perf-test` sustained at max rate). The session summary at
+the end of that file shows zero kernel drops and zero ring drops under load.
 
 ---
 

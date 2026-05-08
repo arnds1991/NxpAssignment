@@ -951,8 +951,12 @@ void format_frame(const parsed_frame_t *f, char *buf, size_t sz)
         }
     }
 
-    /* Payload hex dump (capped at PAYLOAD_DUMP_BYTES) */
+    /* Payload hex dump (capped at PAYLOAD_DUMP_BYTES).
+     * Output format matches Wireshark: one row = 16 bytes.
+     *   <offset>  <hex bytes, space-separated>  <ASCII>
+     */
     if (f->payload_len > 0 && PAYLOAD_DUMP_BYTES > 0) {
+        /* Clamp to PAYLOAD_DUMP_BYTES so we never print more than configured. */
         uint32_t dump_len = f->payload_len > PAYLOAD_DUMP_BYTES ? PAYLOAD_DUMP_BYTES : f->payload_len;
         uint32_t i;
         if (f->payload_len > PAYLOAD_DUMP_BYTES)
@@ -961,17 +965,26 @@ void format_frame(const parsed_frame_t *f, char *buf, size_t sz)
         else
             APPEND("  [PAYLOAD] %u bytes\n", f->payload_len);
         for (i = 0; i < dump_len; i += 16) {
+            /* Number of bytes on this row (< 16 only on the last row). */
             uint32_t j, row = dump_len - i > 16 ? 16 : dump_len - i;
+
+            /* Hex offset column. */
             APPEND("  %04x  ", i);
+
+            /* Hex byte columns; an extra space is inserted after byte 7
+             * to visually split the row into two groups of 8. */
             for (j = 0; j < row; j++) {
                 if (j == 8) APPEND(" ");
                 APPEND("%02x ", f->payload[i + j]);
             }
-            /* pad short last row */
+            /* Pad the hex area of a short last row with spaces so the
+             * ASCII column is always right-aligned. */
             for (j = row; j < 16; j++) {
                 if (j == 8) APPEND(" ");
                 APPEND("   ");
             }
+
+            /* ASCII column: printable characters as-is, everything else '.'. */
             APPEND(" ");
             for (j = 0; j < row; j++) {
                 uint8_t c = f->payload[i + j];

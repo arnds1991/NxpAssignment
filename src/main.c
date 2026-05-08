@@ -195,7 +195,7 @@ static void *format_thread_func(void *arg)
 /*  This is the only thread that calls fwrite or fflush.               */
 /*                                                                      */
 /*  Flush policy: flush when str_ring is momentarily empty.            */
-/*  One condition – no percentage thresholds.                          */
+/*                                                                     */
 /* ------------------------------------------------------------------ */
 
 static void *io_thread_func(void *arg)
