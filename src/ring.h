@@ -52,10 +52,10 @@
  * which can stall for tens of milliseconds on a slow terminal or pipe.
  *
  * Worst-case sizing: at 10 000 frames/s a 100 ms fwrite stall produces
- * ~1 000 queued strings.  4096 slots gives a comfortable safety margin
- * while costing only ~8 MB of BSS (4096 x 2048 bytes).
+ * ~1 000 queued strings.  STR_RING_SIZE slots gives a comfortable safety
+ * margin (STR_RING_SIZE x STR_SLOT_MAX_LEN bytes).
  */
-#define STR_RING_SIZE     18000   /* number of string slots              */
+#define STR_RING_SIZE     10000   /* number of string slots              */
 #define STR_SLOT_MAX_LEN  2048   /* max bytes in one formatted string   */
 
 /* ------------------------------------------------------------------ */

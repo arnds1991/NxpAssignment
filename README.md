@@ -112,8 +112,8 @@ and will appear in ethsniff output with an `[ERROR]` tag:
 
 ethsniff uses a three-thread pipeline to decouple capture from output:
 
-- **Capture thread** — calls libpcap and pushes raw frames into `raw_ring` (512 slots).
-- **Format thread** — pops frames, runs the protocol dissectors, formats them as text, and pushes strings into `str_ring` (18 000 slots).
+- **Capture thread** — calls libpcap and pushes raw frames into `raw_ring` (`RAW_RING_SIZE` slots).
+- **Format thread** — pops frames, runs the protocol dissectors, formats them as text, and pushes strings into `str_ring` (`STR_RING_SIZE` slots).
 - **IO thread** — drains `str_ring` with `fwrite`, flushing stdout in batches.
 
 Both rings are fixed-size lock-based circular buffers. If a ring is full the pushing thread drops the frame and increments a counter. A session summary (frame count, peak ring occupancy, drop counts, kernel stats) is printed to stderr when ethsniff exits.

@@ -6,9 +6,9 @@
 flowchart LR
     NIC["Network Interface"]
     pcap["pcap_loop()\ncapture thread"]
-    raw["Raw ring\n512 slots\nmutex + condvar"]
+    raw["Raw ring\nRAW_RING_SIZE slots\nmutex + condvar"]
     fmt["Format thread\nCPU-only"]
-    str["String ring\n18000 slots\nmutex + condvar"]
+    str["String ring\nSTR_RING_SIZE slots\nmutex + condvar"]
     io["IO thread\nI/O-only"]
     out["stdout"]
 
@@ -100,9 +100,9 @@ Both rings are defined in `ring.h` and implemented in `ring.c`.
 
 ```
 raw_ring_t                           (stage 1: capture → format)
-├── raw_slot_t[512]    slots         (circular buffer of raw frame slots)
-│   ├── uint8_t[1522]  data          (raw frame bytes; 1522 = max standard
-│   │                                Ethernet incl. QinQ, FCS stripped by NIC)
+├── raw_slot_t[RAW_RING_SIZE] slots  (circular buffer of raw frame slots)
+│   ├── uint8_t[MAX_FRAME_BYTES] data (raw frame bytes; MAX_FRAME_BYTES = max
+│   │                                standard Ethernet incl. QinQ, FCS stripped by NIC)
 │   ├── uint32_t       caplen        (bytes actually captured)
 │   ├── uint32_t       wirelen       (bytes on the wire)
 │   ├── long           ts_sec        (pcap timestamp – seconds)
@@ -116,8 +116,8 @@ raw_ring_t                           (stage 1: capture → format)
 └── pthread_cond_t     not_empty
 
 str_ring_t                           (stage 2: format → IO)
-├── str_slot_t[18000]  slots         (circular buffer of pre-formatted strings)
-│   ├── char[2048]     text          (null-terminated formatted frame string)
+├── str_slot_t[STR_RING_SIZE] slots  (circular buffer of pre-formatted strings)
+│   ├── char[STR_SLOT_MAX_LEN] text  (null-terminated formatted frame string)
 │   └── int            len           (strlen(text), cached for fwrite)
 ├── uint32_t           head          (consumer read pointer  – IO thread)
 ├── uint32_t           tail          (producer write pointer – format thread)
@@ -163,16 +163,16 @@ parsed_frame_t
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Frame size limit:** `MAX_FRAME_BYTES = 1522` — the largest standard Ethernet
+**Frame size limit:** `MAX_FRAME_BYTES` — the largest standard Ethernet
 frame without jumbo frame support:
 
 | Frame type | Size (FCS stripped by NIC) |
 |---|---|
 | Untagged | 1514 bytes |
 | 802.1Q single tag | 1518 bytes |
-| QinQ double tag | **1522 bytes** ← `MAX_FRAME_BYTES` |
+| QinQ double tag | **`MAX_FRAME_BYTES`** |
 
-Frames larger than 1522 bytes are clamped on capture. The pcap snaplen is
+Frames larger than `MAX_FRAME_BYTES` bytes are clamped on capture. The pcap snaplen is
 set to `MAX_FRAME_BYTES` so the kernel never captures more than the ring
 slot can hold.
 

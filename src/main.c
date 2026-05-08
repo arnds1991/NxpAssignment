@@ -5,7 +5,8 @@
  *
  *   ┌───────────────┐     ┌──────────────┐     ┌───────────────┐     ┌──────────────┐
  *   │    capture    │────▶│   raw_ring   │────▶│    format     │────▶│  str_ring    │
- *   │  (pcap_loop)  │copy │  512 slots   │deq  │    thread     │push │  512 slots   │
+ *   │  (pcap_loop)  │copy │RAW_RING_SIZE │deq  │    thread     │push │STR_RING_SIZE │
+ *   │               │     │    slots     │     │               │     │    slots     │
  *   └───────────────┘     └──────────────┘     └───────────────┘     └──────┬───────┘
  *                                                                            │
  *                                                                     ┌──────▼───────┐
@@ -28,7 +29,8 @@
  *               stdout.  The only thread that calls fwrite or fflush.
  *               Flushes when str_ring is momentarily empty – one simple rule.
  *
- *   Stats     – Samples both rings every 10 ms; prints a 1-second summary.
+ *   Stats     – Tracked inline in the format thread (see ENABLE_SESSION_STATS);
+ *               a summary is printed to stderr after pcap_loop returns.
  *
  * Ring buffer and dissector code live in ring.c / dissect.c respectively.
  * main.c is responsible only for wiring the threads together.

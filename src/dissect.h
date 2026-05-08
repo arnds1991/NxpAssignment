@@ -4,9 +4,8 @@
  * Architecture:
  *   capture thread  →  ring buffer  →  print thread
  *   pcap callback enqueues a copy of each packet into a fixed-size ring
- *   buffer (lock-free per-slot using an atomic state).  A dedicated
- *   printing thread dequeues and dissects packets so pcap never blocks
- *   on I/O.
+ *   buffer (mutex-protected).  A dedicated format thread dequeues and
+ *   dissects packets so pcap never blocks on I/O.
  */
 
 #ifndef DISSECT_H
