@@ -73,6 +73,7 @@ rc_t raw_ring_push(raw_ring_t *r,
     s->frame_no = frame_no;
     r->tail     = next;
 
+    /* Track peak occupancy for session stats */
     {
         uint32_t occ = (r->tail - r->head + RAW_RING_SIZE) % RAW_RING_SIZE;
         if (occ > r->peak) r->peak = occ;
@@ -150,6 +151,7 @@ rc_t str_ring_push(str_ring_t *r, const char *text, int len)
     r->slots[r->tail].len       = len;
     r->tail = next;
 
+    /* Track peak occupancy for session stats */
     {
         uint32_t occ = (r->tail - r->head + STR_RING_SIZE) % STR_RING_SIZE;
         if (occ > r->peak) r->peak = occ;

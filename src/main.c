@@ -24,40 +24,42 @@
  *   Format    – Pops raw frames from raw_ring, dissects bytes into protocol
  *               fields, renders a string, and pushes it into str_ring via
  *               str_ring_push().  CPU-bound only; never calls fwrite/fflush.
+ *               Stats are tracked in the format thread (see ENABLE_SESSION_STATS);
+ *               a summary is printed to stderr after pcap_loop returns.
+ *               Stats are tracked in the format thread (see ENABLE_SESSION_STATS);
+ *               a summary is printed to stderr after pcap_loop returns.
  *
  *   IO        – Pops formatted strings from str_ring and writes them to
  *               stdout.  The only thread that calls fwrite or fflush.
- *               Flushes when str_ring is momentarily empty – one simple rule.
+ *               Flushes when str_ring is momentarily empty.
  *
- *   Stats     – Tracked inline in the format thread (see ENABLE_SESSION_STATS);
- *               a summary is printed to stderr after pcap_loop returns.
  *
  * Ring buffer and dissector code live in ring.c / dissect.c respectively.
- * main.c is responsible only for wiring the threads together.
  *
  * Synchronisation: pthread mutex + condition variables (see ring.h).
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
-#include <signal.h>
-#include <pthread.h>
-#include <time.h>
-#include <inttypes.h>
+#include <stdio.h>      /* fprintf(), fflush(), setvbuf() */
+#include <stdlib.h>     /* exit() */
+#include <string.h>     /* strlen() */
+#include <stdint.h>     /* uint8_t, uint32_t, uint64_t */
+#include <signal.h>     /* signal(), SIGINT, SIGTERM */
+#include <pthread.h>    /* pthread_create(), pthread_join(), pthread_cond_signal() */
+#include <time.h>       /* clock_gettime(), CLOCK_MONOTONIC */
+#include <inttypes.h>   /* PRIu64, PRIu32 (printf format specifiers) */
 
-#include <pcap.h>
-#include "dissect.h"
-#include "ring.h"
+#include <pcap.h>       /* Packet capture: pcap_create(), pcap_loop(), etc. */
+#include "dissect.h"    /* dissect_frame(), format_frame() */
+#include "ring.h"       /* raw_ring_t, str_ring_t, ring operations */
 
 /* ------------------------------------------------------------------ */
 /*  Constants local to main.c                                          */
 /* ------------------------------------------------------------------ */
 
-#define DEFAULT_SNAPLEN    MAX_FRAME_BYTES   /* match ring slot size          */
-#define DEFAULT_TIMEOUT    1000              /* pcap read timeout (ms)        */
-#define PCAP_BUFFER_SIZE   (16 * 1024 * 1024) /* kernel pcap ring buffer: 16 MB */
+#define DEFAULT_SNAPLEN      MAX_FRAME_BYTES   /* match ring slot size          */
+#define DEFAULT_TIMEOUT      1000              /* pcap read timeout (ms)        */
+#define PCAP_BUFFER_SIZE     (16 * 1024 * 1024) /* kernel pcap ring buffer: 16 MB */
+#define IO_FLUSH_FRAME_THR   10                /* flush output every N frames   */
 
 /* ------------------------------------------------------------------ */
 /*  Session statistics                                                  */
@@ -113,7 +115,7 @@ static void pcap_callback(u_char *user,
 /* ------------------------------------------------------------------ */
 /*  Format thread                                                       */
 /*                                                                      */
-/*  Single responsibility: drain raw_ring, dissect each frame,         */
+/*  Drain raw_ring, dissect each frame,                                 */
 /*  format it to a string, push that string into str_ring.             */
 /*  This thread never calls fwrite or fflush.                          */
 /* ------------------------------------------------------------------ */
@@ -126,9 +128,9 @@ static void *format_thread_func(void *arg)
     char            text[STR_SLOT_MAX_LEN];
     int             len;
 #ifdef ENABLE_SESSION_STATS
-    struct timespec _win_start;
-    uint64_t        _win_frames = 0;
-    uint64_t        _win_bytes  = 0;
+    struct timespec _win_start;     /* Window start time for 1-second buckets */
+    uint64_t        _win_frames = 0; /* Frames in current window */
+    uint64_t        _win_bytes  = 0; /* Bytes in current window */
     clock_gettime(CLOCK_MONOTONIC, &_win_start);
 #endif
 
@@ -148,8 +150,9 @@ static void *format_thread_func(void *arg)
 
         /* Hand the string to the IO thread via str_ring. */
         str_ring_push(&g_str_ring, text, len);
-#ifdef ENABLE_SESSION_STATS
+#ifdef ENABLE_SESSION_STATS        /* Measure dissect+format latency for this frame */        
         clock_gettime(CLOCK_MONOTONIC, &_t1);
+        /* Track worst-case dissect+format time in nanoseconds */
         {
             uint64_t ns = (uint64_t)(_t1.tv_sec  - _t0.tv_sec)  * 1000000000ULL +
                           (uint64_t)(_t1.tv_nsec - _t0.tv_nsec);
@@ -159,6 +162,7 @@ static void *format_thread_func(void *arg)
         g_total_bytes += slot.wirelen;
         _win_frames++;
         _win_bytes += slot.wirelen;
+        /* Check if 1-second window elapsed; update peak fps/bps and slide window */
         {
             double _elapsed = (_t1.tv_sec  - _win_start.tv_sec) +
                               (_t1.tv_nsec - _win_start.tv_nsec) / 1e9;
@@ -202,6 +206,7 @@ static void *io_thread_func(void *arg)
 {
     str_ring_t *r = (str_ring_t *)arg;
     str_slot_t  slot;
+    int unflushed_frames = 0;  /* tracks number of unflushed frames */
 
     for (;;) {
         /*
@@ -212,13 +217,16 @@ static void *io_thread_func(void *arg)
             break;
 
         fwrite(slot.text, 1, (size_t)slot.len, stdout);
+        unflushed_frames++;
 
         /*
-         * Flush when str_ring is momentarily empty: if there is more to
-         * write we batch naturally by deferring the flush.
+         * Hybrid flush policy: flush every IO_FLUSH_FRAME_THR frames OR when ring is empty.
+         * Balances latency (output appears promptly) vs throughput (batch flushing).
          */
-        if (r->head == r->tail)
+        if (unflushed_frames >= IO_FLUSH_FRAME_THR || r->head == r->tail) {
             fflush(stdout);
+            unflushed_frames = 0;
+        }
     }
 
     /* Final flush for anything written since the last idle point. */

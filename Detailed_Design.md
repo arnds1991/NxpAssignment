@@ -75,9 +75,7 @@ dissect_frame()
 `dissect_doip` and `dissect_someip_sd` are called by `dissect_frame` **after**
 `dissect_l3` returns, not from inside the L4 dissectors.  They need the port
 numbers that `dissect_tcp` / `dissect_udp` already wrote into `parsed_frame_t`,
-so they can only run once L4 parsing is complete.  Calling them from inside
-`dissect_l4` would be a layering violation (L4 dissector calling an L7
-dissector).
+so they can only run once L4 parsing is complete.  
 
 ---
 
@@ -90,7 +88,7 @@ dissector).
 | `src/ring.c` | All ring buffer operations: init, push, pop, occupancy, peak tracking |
 | `src/dissect.c` | All protocol dissectors + `format_frame()` |
 | `src/dissect.h` | Public types (`parsed_frame_t`, enums) and declarations |
-| `CMakeLists.txt` | Build targets: `ethsniff`, `send_frames`; post-build install to `out/` |
+| `CMakeLists.txt` | Build targets: `ethsniff`, `send_frames`;  |
 
 ---
 
