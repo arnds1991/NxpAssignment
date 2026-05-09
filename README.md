@@ -3,16 +3,13 @@
 Command-line Ethernet frame sniffer written in C. Captures live traffic via
 libpcap and prints structured, human-readable dissection of every frame.
 
-**Linux only.** Requires `AF_PACKET` raw sockets and `sendmmsg(2)`, which are
-Linux-specific APIs.
+Developed and tested on **Linux only.** 
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|---|---|---|
-| Linux | kernel ≥ 3.0 | `AF_PACKET` + `sendmmsg` required |
+| Linux | kernel ≥ 3.0 |
 | C compiler | C11 | `gcc` or `clang` |
 | CMake | ≥ 3.16 | build system |
 | libpcap | any recent | capture library (`libpcap-dev` on Debian/Ubuntu) |
@@ -31,8 +28,12 @@ cmake -S . -B build && cmake --build build -j
 ## Usage
 
 ```bash
+# To understand the usage
+./build/ethsniff -h
+
 # Capture on eth0 (requires root or CAP_NET_RAW)
 sudo ./build/ethsniff -i eth0
+
 ```
 
 ---
@@ -105,7 +106,7 @@ The full output of a `send_frames` functional test run is in
 
 [`Flood_Output.txt`](Flood_Output.txt) contains the results of a basic stress
 test (`send_frames --perf-test` sustained at max rate). The session summary at
-the end of that file shows zero kernel drops and zero ring drops under load.
+the end shows some statistics.
 
 ---
 
