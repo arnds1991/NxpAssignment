@@ -33,6 +33,7 @@ cmake -S . -B build && cmake --build build -j
 ```bash
 # Capture on eth0 (requires root or CAP_NET_RAW)
 sudo ./build/ethsniff -i eth0
+```
 
 ---
 
@@ -136,13 +137,13 @@ See [Detailed_Design.md](Detailed_Design.md) for a full design walkthrough.
 
 ## Known limitations
 
-- IPv6 extension headers not walked (only the fixed 40-byte header is parsed)
+- IPv6 extension headers not parsed. (only the fixed 40-byte header is parsed)
 - TCP options not decoded (MSS, SACK, timestamps)
-- Fragmented IP: L4 header is absent in non-first fragments
 - Maximum 2 VLAN tags;
-- Fixed-size ring buffers — sustained high frame rates may cause drops
+- Fixed-size ring buffers — can be configured using macros
 - Live capture only; no `.pcap` file input or output
 - Output throughput is bounded by terminal `fwrite` latency.
+- Redirecting the logs to a file gives better results.
 
 ---
 

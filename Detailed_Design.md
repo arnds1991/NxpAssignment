@@ -26,7 +26,7 @@ Three threads run concurrently:
 |---|---|---|
 | Capture (`pcap_loop`) | Copies raw frames into the raw ring via `pcap_callback` | No |
 | Format | Dequeues raw frames, dissects and formats them, pushes strings into the string ring; tracks peak fps, peak throughput and peak dissect+format latency | No |
-| IO | Dequeues formatted strings and writes them to stdout; flushes when the string ring is momentarily empty | **Yes — only thread** |
+| IO | Dequeues formatted strings and writes them to stdout; flushes every `IO_FLUSH_FRAME_THR` frames or when the string ring is momentarily empty (whichever comes first) | 
 
 **Why two output stages?**
 A single thread that both formats and writes to stdout can drop frames when
@@ -38,8 +38,7 @@ nobody draining it.  By splitting the work:
 - The **IO thread** owns stdout exclusively.  If stdout stalls, only the IO
   thread stalls; the format thread and capture thread are unaffected.
 
-**Flush policy** (IO thread): flush when the string ring is momentarily empty.
-One condition, no percentage thresholds.
+**Flush policy** (IO thread): flush every `IO_FLUSH_FRAME_THR` frames, or immediately when the string ring is momentarily empty — whichever comes first. This balances output latency against throughput.
 
 **Session summary:** when `ENABLE_SESSION_STATS` is defined (default on), the
 format thread accumulates peak fps, peak throughput, and peak dissect+format

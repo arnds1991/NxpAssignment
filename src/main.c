@@ -26,8 +26,6 @@
  *               str_ring_push().  CPU-bound only; never calls fwrite/fflush.
  *               Stats are tracked in the format thread (see ENABLE_SESSION_STATS);
  *               a summary is printed to stderr after pcap_loop returns.
- *               Stats are tracked in the format thread (see ENABLE_SESSION_STATS);
- *               a summary is printed to stderr after pcap_loop returns.
  *
  *   IO        – Pops formatted strings from str_ring and writes them to
  *               stdout.  The only thread that calls fwrite or fflush.
@@ -198,8 +196,8 @@ static void *format_thread_func(void *arg)
 /*  Single responsibility: drain str_ring and write strings to stdout. */
 /*  This is the only thread that calls fwrite or fflush.               */
 /*                                                                      */
-/*  Flush policy: flush when str_ring is momentarily empty.            */
-/*                                                                     */
+/*  Flush policy: flush every IO_FLUSH_FRAME_THR frames, or           */
+/*  immediately when str_ring is momentarily empty (whichever first).  */
 /* ------------------------------------------------------------------ */
 
 static void *io_thread_func(void *arg)
