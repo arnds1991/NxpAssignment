@@ -2,22 +2,26 @@
 
 ## Runtime pipeline
 
-```mermaid
-flowchart LR
-    NIC["Network Interface"]
-    pcap["pcap_loop()\ncapture thread"]
-    raw["Raw ring\nRAW_RING_SIZE slots\nmutex + condvar"]
-    fmt["Format thread\nCPU-only"]
-    str["String ring\nSTR_RING_SIZE slots\nmutex + condvar"]
-    io["IO thread\nI/O-only"]
-    out["stdout"]
-
-    NIC -->|raw frame| pcap
-    pcap -->|memcpy + signal| raw
-    raw -->|dequeue| fmt
-    fmt -->|dissect + format + push| str
-    str -->|dequeue| io
-    io -->|fwrite / fflush| out
+```
+Network Interface
+      │ raw frame
+      ▼
+pcap_loop() / capture thread
+      │ memcpy + signal
+      ▼
+Raw ring  (RAW_RING_SIZE slots, mutex + condvar)
+      │ dequeue
+      ▼
+Format thread  (CPU-only)
+      │ dissect + format + push
+      ▼
+String ring  (STR_RING_SIZE slots, mutex + condvar)
+      │ dequeue
+      ▼
+IO thread  (I/O-only)
+      │ fwrite / fflush
+      ▼
+stdout
 ```
 
 Three threads run concurrently:
