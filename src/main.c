@@ -148,7 +148,7 @@ static void *format_thread_func(void *arg)
 
         /* Hand the string to the IO thread via str_ring. */
         str_ring_push(&g_str_ring, text, len);
-#ifdef ENABLE_SESSION_STATS        /* Measure dissect+format latency for this frame */        
+#ifdef ENABLE_SESSION_STATS        /* Measure dissect+format latency for this frame */      
         clock_gettime(CLOCK_MONOTONIC, &_t1);
         /* Track worst-case dissect+format time in nanoseconds */
         {

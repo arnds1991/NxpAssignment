@@ -65,21 +65,16 @@ static const char * const dissect_err_str[] = {
 /*  L4 dissectors                                                       */
 /* ------------------------------------------------------------------ */
 
-/* Parse a TCP segment header (RFC 793, min 20 bytes).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |          Source Port          |       Destination Port        |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                        Sequence Number                        |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                    Acknowledgment Number                      |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |Data Offset|Rsv|C|E|U|A|P|R|S|F|            Window            |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |           Checksum            |         Urgent Pointer        |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* TCP header (min 20 bytes):
+ *   [0-1]   src port       (2 bytes)
+ *   [2-3]   dst port       (2 bytes)
+ *   [4-7]   sequence number (4 bytes)
+ *   [8-11]  ack number     (4 bytes)
+ *   [12]    data offset (upper nibble, in 32-bit words) + reserved + flags high bits
+ *   [13]    flags          (CWR ECE URG ACK PSH RST SYN FIN)
+ *   [14-15] window         (2 bytes)
+ *   [16-17] checksum       (not verified)
+ *   [18-19] urgent pointer (not used)
  */
 static rc_t dissect_tcp(const uint8_t *data, uint32_t len, tcp_info_t *out)
 {
@@ -94,15 +89,11 @@ static rc_t dissect_tcp(const uint8_t *data, uint32_t len, tcp_info_t *out)
     return RC_OK;
 }
 
-/* Parse a UDP datagram header (RFC 768, fixed 8 bytes).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |          Source Port          |       Destination Port        |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |             Length            |            Checksum           |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* UDP header (fixed 8 bytes):
+ *   [0-1]  src port   (2 bytes)
+ *   [2-3]  dst port   (2 bytes)
+ *   [4-5]  length     (2 bytes, includes the 8-byte header)
+ *   [6-7]  checksum   (not verified)
  */
 static rc_t dissect_udp(const uint8_t *data, uint32_t len, udp_info_t *out)
 {
@@ -113,15 +104,11 @@ static rc_t dissect_udp(const uint8_t *data, uint32_t len, udp_info_t *out)
     return RC_OK;
 }
 
-/* Parse an ICMPv4 message header (RFC 792, fixed 8 bytes).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |     Type      |     Code      |           Checksum            |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                   Rest of Header (type-dependent)             |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* ICMP header (fixed 8 bytes):
+ *   [0]    type     (1 byte)
+ *   [1]    code     (1 byte)
+ *   [2-3]  checksum (not verified)
+ *   [4-7]  rest of header (type-dependent; for echo: id[2] + seq[2])
  */
 static rc_t dissect_icmp(const uint8_t *data, uint32_t len, icmp_info_t *out)
 {
@@ -134,14 +121,11 @@ static rc_t dissect_icmp(const uint8_t *data, uint32_t len, icmp_info_t *out)
 }
 
 /* Walk the variable-length TLV option list that follows NDP fixed headers
- * (RS/RA/NS/NA).  Each option has the layout:
- *
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |     Type      |  Length (×8)  |   Value (Length×8 - 2 bytes) |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *
- * Extracts the link-layer address from SLLA (type 1) or TLLA (type 2)
- * options if present. */
+ * (RS/RA/NS/NA).  Each option:
+ *   [0]   type   (1=SLLA source MAC, 2=TLLA target MAC, others ignored)
+ *   [1]   length (units of 8 bytes; 0 is invalid)
+ *   [2..] value  (length*8 - 2 bytes)
+ * Extracts the MAC from SLLA/TLLA options if present. */
 static void dissect_ndp_options(const uint8_t *data, uint32_t len,
                                 icmpv6_info_t *out)
 {
@@ -164,16 +148,12 @@ static void dissect_ndp_options(const uint8_t *data, uint32_t len,
     }
 }
 
-/* Parse an ICMPv6 message (RFC 4443, 8 bytes minimum) and further decode
- * NDP sub-types RS/RA/NS/NA (RFC 4861), including their option lists.
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |     Type      |     Code      |           Checksum            |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |           Message Body (type-dependent, at least 4 bytes)     |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* ICMPv6 header (min 8 bytes):
+ *   [0]    type     (1 byte)
+ *   [1]    code     (1 byte)
+ *   [2-3]  checksum (not verified)
+ *   [4-7]  message body (type-dependent)
+ * NDP subtypes RS/RA/NS/NA are decoded further.
  */
 static rc_t dissect_icmpv6(const uint8_t *data, uint32_t len,
                             icmpv6_info_t *out)
@@ -272,22 +252,17 @@ static void dissect_l4(const uint8_t *data, uint32_t len,
 /*  L3 dissectors                                                       */
 /* ------------------------------------------------------------------ */
 
-/* Parse an IPv4 packet header (RFC 791, min 20 bytes) and dispatch the
- * L4 payload to the appropriate dissector (TCP/UDP/ICMP).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |Version|  IHL  |    DSCP   |ECN|          Total Length         |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |         Identification        |Flags|     Fragment Offset     |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |  Time to Live |    Protocol   |        Header Checksum        |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                       Source Address                          |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                    Destination Address                        |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* IPv4 header (min 20 bytes):
+ *   [0]     version (upper nibble) + IHL (lower nibble, in 32-bit words)
+ *   [1]     DSCP (upper 6 bits) + ECN (lower 2 bits)
+ *   [2-3]   total length
+ *   [4-7]   identification + flags + fragment offset  (not used)
+ *   [8]     TTL
+ *   [9]     protocol
+ *   [10-11] header checksum  (not verified)
+ *   [12-15] source address
+ *   [16-19] destination address
+ * L4 payload starts at byte IHL*4.
  */
 static rc_t dissect_ipv4(const uint8_t *data, uint32_t len, parsed_frame_t *out)
 {
@@ -322,20 +297,14 @@ static rc_t dissect_ipv4(const uint8_t *data, uint32_t len, parsed_frame_t *out)
     return RC_OK;
 }
 
-/* Parse an IPv6 packet header (RFC 8200, fixed 40 bytes) and dispatch the
- * L4 payload to the appropriate dissector (TCP/UDP/ICMPv6).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |Version| Traffic Class |             Flow Label                |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |         Payload Length        |  Next Header  |   Hop Limit   |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                   Source Address (128 bits)                   |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                Destination Address (128 bits)                 |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* IPv6 header (fixed 40 bytes):
+ *   [0-3]   version (4b) + traffic class (8b) + flow label (20b)
+ *   [4-5]   payload length (excludes this 40-byte header)
+ *   [6]     next header (protocol of first extension header or L4)
+ *   [7]     hop limit
+ *   [8-23]  source address (128 bits)
+ *   [24-39] destination address (128 bits)
+ * Extension headers are not decoded; L4 is dispatched directly from next_hdr.
  */
 static rc_t dissect_ipv6(const uint8_t *data, uint32_t len, parsed_frame_t *out)
 {
@@ -361,23 +330,16 @@ static rc_t dissect_ipv6(const uint8_t *data, uint32_t len, parsed_frame_t *out)
     return RC_OK;
 }
 
-/* Parse an Ethernet/IPv4 ARP message (RFC 826, fixed 28 bytes).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |        Hardware Type          |        Protocol Type          |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |  HW Addr Len  |Proto Addr Len |           Operation           |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |               Sender Hardware Address (6 bytes)               |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |  SHA (cont.)  |        Sender Protocol Address (4 bytes)      |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |  SPA (cont.)  |        Target Hardware Address (6 bytes)      |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |         THA (cont.)           |  Target Protocol Addr (cont.) |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* ARP for Ethernet/IPv4 (fixed 28 bytes):
+ *   [0-1]   hardware type  (2 bytes; 1 = Ethernet)
+ *   [2-3]   protocol type  (2 bytes; 0x0800 = IPv4)
+ *   [4]     hw addr length (6 for Ethernet)
+ *   [5]     proto addr len (4 for IPv4)
+ *   [6-7]   operation      (1 = request, 2 = reply)
+ *   [8-13]  sender MAC
+ *   [14-17] sender IP
+ *   [18-23] target MAC
+ *   [24-27] target IP
  */
 static rc_t dissect_arp(const uint8_t *data, uint32_t len, arp_info_t *out)
 {
@@ -443,16 +405,11 @@ static void dissect_l3(uint16_t etype,
 /*  DoIP dissector (ISO 13400-2)                                        */
 /* ------------------------------------------------------------------ */
 
-/* Parse the 8-byte DoIP generic header (ISO 13400-2).  The payload type
- * field identifies the specific message (routing activation, diagnostics…).
- *
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |Protocol Version |Inv. Version |          Payload Type         |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                        Payload Length                         |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* DoIP header (ISO 13400-2, fixed 8 bytes):
+ *   [0]    protocol version
+ *   [1]    inverse version (0xFF ^ version, used for header integrity)
+ *   [2-3]  payload type
+ *   [4-7]  payload length
  */
 static void dissect_doip(const uint8_t *data, uint32_t len, doip_info_t *out)
 {
@@ -469,19 +426,13 @@ static void dissect_doip(const uint8_t *data, uint32_t len, doip_info_t *out)
 /*  data = raw UDP payload (= full SOME/IP frame incl. 16-byte header) */
 /* ------------------------------------------------------------------ */
 
-/* Parse the SOME/IP-SD service-discovery payload.  The 16-byte SOME/IP
- * header is skipped; the SD payload begins with flags + entries array.
- *
- *  SD payload (after 16-byte SOME/IP header):
- *   0               1               2               3
- *   0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |    Flags      |              Reserved (3 bytes)               |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |                    Entries Array Length                       |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
- *  |            Entries Array (N × 16 bytes each)                  |
- *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+/* SOME/IP-SD payload (AUTOSAR PRS_SOMEIPSD), after the 16-byte SOME/IP header:
+ *   [0]    flags         (bit7=reboot, bit6=unicast)
+ *   [1-3]  reserved
+ *   [4-7]  entries array length
+ *   [8..]  entries (N x 16 bytes each)
+ * Each 16-byte entry: type[1] + reserved[3] + service_id[2] + instance_id[2]
+ *                   + major_version[1] + TTL[3] + minor_version or eventgroup_id[4]
  */
 static void dissect_someip_sd(const uint8_t *data, uint32_t len,
                                someip_sd_info_t *out)
